@@ -1,0 +1,13 @@
+// GET /api/faq/search?q=refund
+
+{
+  "results": [
+    {
+      "id": "faq12",
+      "question": "How do I request a refund?",
+      "answer": "Go to your orders page and click 'Request Refund'.",
+      "tags": ["payment", "refund"],
+      "language": "en"
+    }
+  ]
+}

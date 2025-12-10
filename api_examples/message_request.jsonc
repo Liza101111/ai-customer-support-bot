@@ -1,0 +1,8 @@
+// POST /api/messages
+
+{
+  "conversation_id": "abc123",     
+  "session_id": "web-77f91",       
+  "text": "Hello, I need help with my order.",
+  "channel": "web"
+}

@@ -1,0 +1,6 @@
+// POST /api/admin/messages
+{
+  "conversation_id": "abc123",
+  "text": "Your order #00341 is out for delivery.",
+  "sender_type": "agent"     
+}

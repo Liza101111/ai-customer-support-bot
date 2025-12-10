@@ -1,0 +1,20 @@
+// GET /api/admin/conversations
+
+{
+  "conversations": [
+    {
+      "conversation_id": "abc123",
+      "latest_message": "Could you share your order number?",
+      "last_updated": "2025-01-10T10:12:45Z",
+      "channel": "web",
+      "status": "open"
+    },
+    {
+      "conversation_id": "def456",
+      "latest_message": "Your refund has been processed.",
+      "last_updated": "2025-01-10T09:58:10Z",
+      "channel": "facebook",
+      "status": "closed"
+    }
+  ]
+}

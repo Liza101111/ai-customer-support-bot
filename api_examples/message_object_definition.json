@@ -1,0 +1,10 @@
+{
+  "id": "m23",
+  "sender_type": "bot", 
+  "content": "Your package will arrive tomorrow.",
+  "created_at": "2025-01-10T12:02:10Z",
+  "metadata": {
+    "language": "en",
+    "confidence": 0.92
+  }
+}
