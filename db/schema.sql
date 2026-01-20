@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- 2) Conversations
 -- ===============================
 -- conversation_id in JSON will map to this `id` column.
--- You can use ULID/UUID generated in Python and store it as TEXT.
+-- We can use ULID/UUID generated in Python and store it as TEXT.
 CREATE TABLE IF NOT EXISTS conversations (
     id              TEXT PRIMARY KEY,  -- e.g. "abc123", "01HRX2..."
     user_id         INTEGER REFERENCES users(id),
@@ -73,3 +73,7 @@ CREATE INDEX IF NOT EXISTS idx_faq_language
 
 CREATE INDEX IF NOT EXISTS idx_faq_active
     ON faq_entries(is_active);
+
+-- Prevent duplicates for the same FAQ in the same language
+CREATE UNIQUE INDEX IF NOT EXISTS uq_faq_question_language
+    ON faq_entries(question, language);
