@@ -131,7 +131,7 @@ def insert_message(
             "sender_type": sender_type,
             "content": content,
             "metadata": metadata or {},
-            "created-at": created_at,
+            "created_at": created_at,
         }
 
 
