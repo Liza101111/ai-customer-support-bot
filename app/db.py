@@ -193,3 +193,34 @@ def get_conversation(conversation_id: str) -> dict[str, Any] | None:
         "created_at": conversation["created_at"],
         "messages": messages,
     }
+
+
+def fetch_faq_entries(lang: str = "en") -> list[dict[str, Any]]:
+    """
+    Load active FAQ entries from the DB (for FAQ matching).
+    """
+    with get_conn() as conn:
+
+        print("DB DEBUG path =", DB_PATH)
+        
+        rows = conn.execute(
+            """
+            SELECT id, question, answer, tags, language
+            FROM faq_entries
+            WHERE is_active=1 AND language=?
+            """,
+            (lang,),
+        ).fetchall()
+
+        
+
+    return [
+        {
+            "id": int(r["id"]),
+            "question": r["question"],
+            "answer": r["answer"],
+            "tags": r["tags"],
+            "language": r["language"],
+        }
+        for r in rows
+    ]

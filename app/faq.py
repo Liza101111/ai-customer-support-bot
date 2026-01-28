@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 from app import db
 
 # Common words that do not carry useful meaning for FAQ matching.
@@ -30,6 +31,10 @@ STOPWORDS = {
     "can",
     "could",
     "help",
+    "how",
+    "do",
+    "does",
+    "did",
 }
 
 
@@ -41,12 +46,15 @@ def tokenize(text: str) -> set[str]:
         cleaned.append(ch if ch.isalnum() else " ")
 
     # Split text into words
-    words = " ".join(cleaned).split
+    words = "".join(
+        cleaned
+    ).split()  # " " was mistake, inserts spaces between every character
 
     # Filter out stopwords and short tokens
     return {w for w in words if w not in STOPWORDS and len(w) >= 2}
 
 
+@dataclass
 class FaqMatch:
     """
     Represents a matched FAQ entry with a similarity score.
@@ -92,6 +100,9 @@ def find_best_faq(query: str, lang: str = "en") -> FaqMatch | None:
     # Load active FAQ entries from the database
     rows = db.fetch_faq_entries(lang=lang)
 
+    print("FAQ DEBUG rows =", len(rows))
+    print("DEBUG query tokens =", q_tokens)
+
     best: FaqMatch | None = None
 
     for r in rows:
@@ -106,6 +117,10 @@ def find_best_faq(query: str, lang: str = "en") -> FaqMatch | None:
         overlap = len(q_tokens & h_tokens)
         score = overlap / max(len(q_tokens), 1)
 
+        print("DEBUG faq:", r["id"], r["question"])
+        print("  h_tokens =", h_tokens)
+        print("  overlap =", overlap, "score =", score)
+
         # Keep the highest scoring FAQ
         if best is None or score > best.score:
             best = FaqMatch(
@@ -118,11 +133,11 @@ def find_best_faq(query: str, lang: str = "en") -> FaqMatch | None:
             )
 
         # Apply confidence threshold to avoid weak matches
-        if best and best.score >= 0.34:
-            return best
+    if best and best.score >= 0.25:
+        return best
 
         # No suitable FAQ found
-        return None
+    return None
 
 
 # To do in the future:

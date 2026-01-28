@@ -5,6 +5,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from app import db
+from app.faq import find_best_faq
+
 
 app = FastAPI(title="AI Customer Support Bot")
 
@@ -67,28 +69,34 @@ def send_message(payload: SendMessageRequest):
         metadata=None,
     )
 
-    # 4) Generate a bot reply (currently hardcoded stub)
-    # Later we will replace this with:
-    # - FAQ search
-    # - or LLM call
-    bot_text = "Thanks! I got your message. How can I help you next?"
+    # 4) bot reply (FAQ first, then fallback stub)
 
-    # 5) Store bot message with some example metadata
+    match = find_best_faq(payload.text, lang="en")
+    print("FAQ DEBUG match =", match)
+
+    if match:
+        bot_text = match.answer
+        bot_meta = {
+            "confidence": round(match.score, 2),
+            "language": "en",
+            "source": "faq",
+            "faq_id": match.id,
+        }
+    else:
+        bot_text = "Thanks! I got your message. How can I help you next?"
+        bot_meta = {"confidence": 0.2, "language": "en", "source": "stub"}
+
     bot_msg = db.insert_message(
         conversation_id=conversation_id,
         sender_type="bot",
         content=bot_text,
-        metadata={
-            "confidence": 0.5,
-            "language": "en",
-            "source": "stub",
-        },
+        metadata=bot_meta,
     )
 
-    # 6) Update conversation updated_at (so list view can sort by latest activity)
+    # 5) Update conversation updated_at (so list view can sort by latest activity)
     db.set_conversation_updated(conversation_id)
 
-    # 7) Return response payload
+    # 6) Return response payload
     # We keep the response small: the new user message + the bot reply.
     return {
         "conversation_id": conversation_id,
