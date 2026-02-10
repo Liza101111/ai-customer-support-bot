@@ -202,7 +202,7 @@ def fetch_faq_entries(lang: str = "en") -> list[dict[str, Any]]:
     with get_conn() as conn:
 
         print("DB DEBUG path =", DB_PATH)
-        
+
         rows = conn.execute(
             """
             SELECT id, question, answer, tags, language
@@ -211,8 +211,6 @@ def fetch_faq_entries(lang: str = "en") -> list[dict[str, Any]]:
             """,
             (lang,),
         ).fetchall()
-
-        
 
     return [
         {
@@ -224,3 +222,57 @@ def fetch_faq_entries(lang: str = "en") -> list[dict[str, Any]]:
         }
         for r in rows
     ]
+
+
+def row_to_conversation_preview(r) -> dict[str, Any]:
+    """
+    Convert a SQLite row into a conversation preview dict.
+    """
+    return {
+        "conversation_id": r["id"],
+        "channel": r["channel"],
+        "status": r["status"],
+        "created_at": r["created_at"],
+        "updated_at": r["updated_at"],
+        "last_message": r["last_message"],
+        "last_sender_type": r["last_sender_type"],
+        "last_created_at": r["last_created_at"],
+    }
+
+
+def list_conversation(
+    limit: int = 20,
+    offset: int = 0,
+    status: str | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Return conversations newest first with last-message preview.
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                c.id,
+                c.channel,
+                c.status,
+                c.created_at,
+                c.updated_at,
+                lm.content     AS last_message,
+                lm.sender_type AS last_sender_type,
+                lm.created_at  AS last_created_at
+            FROM conversations c
+            LEFT JOIN messages lm
+                ON lm.id = (
+                    SELECT m2.id
+                    FROM messages m2
+                    WHERE m2.conversation_id = c.id
+                    ORDER BY m2.created_at DESC, m2.id DESC
+                    LIMIT 1
+                )
+            WHERE (? IS NULL OR c.status = ?)
+            ORDER BY c.updated_at DESC, c.created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (status, status, limit, offset),
+        ).fetchall()
+    return [row_to_conversation_preview(r) for r in rows]
