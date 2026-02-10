@@ -35,6 +35,10 @@ class SendMessageRequest(BaseModel):
     channel: str = "web"
 
 
+class AdminReplyRequest(BaseModel):
+    text: str
+
+
 # -----------------------------------------------------------------------------
 # POST /api/messages
 # -----------------------------------------------------------------------------
@@ -166,4 +170,45 @@ def list_conversations(
         "items": items,
         "limit": limit,
         "offset": offset,
+    }
+
+
+# -----------------------------------------------------------------------------
+# POST /api/conversations/{conversation_id}/admin-reply
+# -----------------------------------------------------------------------------
+# Add an admin/support reply message to an existing conversation.
+#
+# Behavior:
+# - Returns 404 if conversation does not exist
+# - Stores an "admin" message in the messages table
+# - Updates conversations.updated_at so list view sorts correctly
+
+
+@app.post("/api/conversations/{conversation_id}/admin-reply")
+def admin_reply(conversation_id: str, payload: AdminReplyRequest):
+
+    # 1) Validate conversation exists
+    if not db.conversation_exists(conversation_id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # 2) Insert admin message
+    admin_msg = db.insert_message(
+        conversation_id=conversation_id,
+        sender_type="agent",
+        content=payload.text,
+        metadata={"source": "admin"},
+    )
+
+    # 3) Update conversation timestamp
+    db.set_conversation_updated(conversation_id)
+
+    return {
+        "conversation_id": conversation_id,
+        "admin_message": {
+            "id": admin_msg["id"],
+            "sender_type": admin_msg["sender_type"],
+            "content": admin_msg["content"],
+            "created_at": admin_msg["created_at"],
+        },
+        "status": "open",
     }
