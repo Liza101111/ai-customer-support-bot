@@ -131,3 +131,39 @@ def read_conversation(conversation_id: str):
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     return conversation
+
+
+# -----------------------------------------------------------------------------
+# GET /api/conversations
+# -----------------------------------------------------------------------------
+# List conversations with pagination and optional status filtering.
+#
+# Behavior:
+# - Returns conversations ordered by most recent activity (updated_at DESC)
+# - Supports pagination using limit + offset
+# - Can filter by conversation status (e.g. "open", "closed")
+# - Includes a preview of the last message for each conversation
+
+
+@app.get("/api/conversations")
+def list_conversations(
+    limit: int = 20,
+    offset: int = 0,
+    status: str | None = None,
+):
+
+    # Safety clamps to prevent abuse and bad input
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+
+    items = db.list_conversation(
+        limit=limit,
+        offset=offset,
+        status=status,
+    )
+
+    return {
+        "items": items,
+        "limit": limit,
+        "offset": offset,
+    }
