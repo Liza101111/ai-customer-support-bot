@@ -212,3 +212,42 @@ def admin_reply(conversation_id: str, payload: AdminReplyRequest):
         },
         "status": "open",
     }
+
+
+# -----------------------------------------------------------------------------
+# POST /api/conversations/{conversation_id}/close
+# -----------------------------------------------------------------------------
+# Close a conversation (mark as resolved).
+
+
+@app.post("/api/conversations/{conversation_id}/close")
+def close_conversation(conversation_id: str):
+
+    if not db.conversation_exists(conversation_id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    db.set_conversation_status(conversation_id, "closed")
+
+    return {
+        "conversation_id": conversation_id,
+        "status": "closed",
+    }
+
+
+# -----------------------------------------------------------------------------
+# POST /api/conversations/{conversation_id}/reopen
+# -----------------------------------------------------------------------------
+# Reopen a closed conversation.
+
+
+@app.post("/api/conversations/{conversation_id}/reopen")
+def reopen_conversation(conversation_id: str):
+    if not db.conversation_exists(conversation_id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    db.set_conversation_status(conversation_id, "open")
+
+    return {
+        "conversation_id": conversation_id,
+        "status": "open",
+    }

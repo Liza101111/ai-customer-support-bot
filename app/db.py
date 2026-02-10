@@ -276,3 +276,20 @@ def list_conversation(
             (status, status, limit, offset),
         ).fetchall()
     return [row_to_conversation_preview(r) for r in rows]
+
+
+def set_conversation_status(conversation_id: str, status: str) -> None:
+    """
+    Set conversation status ("open" or "closed") and update updated_at.
+    """
+    now = utc_now_iso()
+
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE conversations
+            SET status = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (status, now, conversation_id),
+        )
