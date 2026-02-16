@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS faq_entries (
     tags        TEXT,              -- e.g. "payment,refund" or JSON string
     language    TEXT NOT NULL DEFAULT 'en',
     is_active   INTEGER NOT NULL DEFAULT 1   -- 1 = true, 0 = false
+    embedding   TEXT     -- JSON string storing vector
 );
 
 CREATE INDEX IF NOT EXISTS idx_faq_language
