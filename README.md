@@ -1,33 +1,69 @@
-# AI Customer Support Bot (FastAPI + SQLite)
+AI Customer Support Bot (FastAPI + SQLite + Semantic Search)
 
-A simple backend API for a customer support chatbot, built with **FastAPI** and **SQLite**.
+A backend API for a customer support chatbot built with FastAPI and SQLite, featuring embedding-based semantic FAQ matching.
 
-This project is designed as a learning project, demonstrating:
-- API design
-- Database persistence
-- Clean separation of concerns
-- Incremental AI-ready architecture
+This project demonstrates:
 
----
+RESTful API design
 
-## ✨ Features
+Database persistence
 
-- Create and manage customer support conversations
-- Store user and bot messages in SQLite
-- Continue conversations using `conversation_id`
-- Simple health check endpoint
-- Swagger / OpenAPI documentation out of the box
+Clean architecture separation
 
-(Currently uses a stub bot response; AI logic can be added later.)
+Embedding-based semantic search
 
----
+AI-ready backend structure
 
-## 🛠 Tech Stack
+✨ Features
 
-- **Python 3.11+**
-- **FastAPI**
-- **SQLite**
-- **Pydantic**
-- **Uvicorn**
+Create and manage customer support conversations
 
----
+Store user and bot messages in SQLite
+
+Continue conversations using conversation_id
+
+Embedding-based FAQ retrieval (semantic search)
+
+Cosine similarity scoring with configurable threshold
+
+Health check endpoint
+
+Swagger / OpenAPI documentation out of the box
+
+🧠 Semantic FAQ Matching
+
+The system uses vector embeddings to match user queries against stored FAQ entries.
+
+How it works:
+
+Generate embedding for user query
+
+Compare against stored FAQ embeddings
+
+Compute similarity via dot product (cosine similarity)
+
+Return best match if confidence threshold is met
+
+This allows matching:
+
+“I want money back”
+with
+“How do I request a refund?”
+
+Even without exact keyword overlap.
+
+🛠 Tech Stack
+
+Python 3.11+
+
+FastAPI
+
+SQLite
+
+Pydantic
+
+Uvicorn
+
+Sentence Transformers
+
+Vector similarity search (cosine)
