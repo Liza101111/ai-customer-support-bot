@@ -205,7 +205,7 @@ def fetch_faq_entries(lang: str = "en") -> list[dict[str, Any]]:
 
         rows = conn.execute(
             """
-            SELECT id, question, answer, tags, language, emdedding
+            SELECT id, question, answer, tags, language, embedding
             FROM faq_entries
             WHERE is_active=1 AND language=?
             """,
@@ -219,6 +219,7 @@ def fetch_faq_entries(lang: str = "en") -> list[dict[str, Any]]:
             "answer": r["answer"],
             "tags": r["tags"],
             "language": r["language"],
+            "embedding": r["embedding"],
         }
         for r in rows
     ]
@@ -296,7 +297,7 @@ def set_conversation_status(conversation_id: str, status: str) -> None:
 
 
 def update_faq_embedding(faq_id: int, embedding_json: str) -> None:
-    with get_conn as conn:
+    with get_conn() as conn:
         conn.execute(
             "UPDATE faq_entries SET embedding=? WHERE id=?",
             (embedding_json, faq_id),
