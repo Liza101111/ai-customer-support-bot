@@ -1,64 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from math import sqrt
 
 from app import db
-
-# Common words that do not carry useful meaning for FAQ matching.
-# Removing these improves match quality by focusing on keywords like "refund".
-STOPWORDS = {
-    "a",
-    "an",
-    "the",
-    "to",
-    "of",
-    "and",
-    "or",
-    "in",
-    "on",
-    "for",
-    "with",
-    "is",
-    "are",
-    "i",
-    "you",
-    "my",
-    "we",
-    "it",
-    "this",
-    "that",
-    "please",
-    "can",
-    "could",
-    "help",
-    "how",
-    "do",
-    "does",
-    "did",
-}
-
-
-def tokenize(text: str) -> set[str]:
-
-    # Replace non-alphanumeric characters with spaces
-    cleaned = []
-    for ch in text.lower():
-        cleaned.append(ch if ch.isalnum() else " ")
-
-    # Split text into words
-    words = "".join(
-        cleaned
-    ).split()  # " " was mistake, inserts spaces between every character
-
-    # Filter out stopwords and short tokens
-    return {w for w in words if w not in STOPWORDS and len(w) >= 2}
+from app.embeddings import embed
 
 
 @dataclass
 class FaqMatch:
     """
     Represents a matched FAQ entry with a similarity score.
-    This object is returned only when a match is confident enough.
+    This object is returned only when the similarity score
+    exceeds the defined confidence threshold.
     """
 
     id: int
@@ -69,57 +24,75 @@ class FaqMatch:
     score: float  # Range: 0.0 .. 1.0
 
 
+def dot(a: list[float], b: list[float]) -> float:
+    """
+    Compute the dot product of two vectors.
+
+    Assumes both vectors are already normalized.
+    When embeddings are normalized, dot product == cosine similarity.
+    """
+    return sum(x * y for x, y in zip(a, b))
+
+
 # -----------------------------------------------------------------------------
 # FAQ retrieval logic
 # -----------------------------------------------------------------------------
-# Find the best FAQ match for a user query.
+# Find the best FAQ match for a user query using vector similarity.
 #
 # Matching strategy:
-#  - Tokenize the user query
-#  - Tokenize FAQ question + tags
-#  - Score = token overlap / number of query tokens
-#  - Return the highest scoring FAQ if it exceeds a confidence threshold
+#  - Generate embedding for the user query
+#  - Load stored FAQ embeddings from the database
+#  - Compute similarity using dot product
+#  - Select the FAQ with the highest similarity score
+#  - Return the match only if it exceeds a confidence threshold
 #
 # Args:
 #     query: User input text
 #     lang: Language code (default: "en")
 #
 # Returns:
-#     FaqMatch if a confident match is found, otherwise None.
+#     FaqMatch if a confident semantic match is found, otherwise None.
 
 
 def find_best_faq(query: str, lang: str = "en") -> FaqMatch | None:
 
-    # Tokenize user input
-    q_tokens = tokenize(query)
+    # Clean and validate user input
+    q = query.strip()
 
-    # If no meaningful tokens, skip FAQ matching
-    if not q_tokens:
+    # Skip empty queries
+    if not q:
         return None
 
-    # Load active FAQ entries from the database
-    rows = db.fetch_faq_entries(lang=lang)
+    # Generate embedding for the query
+    q_vec = embed(q)
 
-    print("FAQ DEBUG rows =", len(rows))
-    print("DEBUG query tokens =", q_tokens)
+    # Load FAQ entries (with stored embeddings) from database
+    rows = db.fetch_faq_entries(lang=lang)
+    print(f"FAQ DEBUG rows={len(rows)}")
+
+    emb_count = sum(1 for r in rows if r.get("embedding"))
+    print(f"FAQ DEBUG rows_with_embedding={emb_count}")
 
     best: FaqMatch | None = None
 
     for r in rows:
 
-        # Combine question and tags into a single searchable text
-        haystack = f"{r['question']} {r.get('tags', '')}"
+        # Skip entries without embeddings
+        if not r.get("embedding"):
+            continue
 
-        # Tokenize FAQ content
-        h_tokens = tokenize(haystack)
+        try:
+            faq_vec = json.loads(r["embedding"])
+        except Exception:
 
-        # Compute token overlap score
-        overlap = len(q_tokens & h_tokens)
-        score = overlap / max(len(q_tokens), 1)
+            # Skip corrupted or invalid embeddings
+            continue
 
-        print("DEBUG faq:", r["id"], r["question"])
-        print("  h_tokens =", h_tokens)
-        print("  overlap =", overlap, "score =", score)
+        # Compute similarity score
+        # Embeddings are normalized → dot product equals cosine similarity
+        score = dot(q_vec, faq_vec)
+
+        print(f"FAQ id={r['id']} | score={score:.3f} | question={r['question'][:40]}")
 
         # Keep the highest scoring FAQ
         if best is None or score > best.score:
@@ -129,18 +102,12 @@ def find_best_faq(query: str, lang: str = "en") -> FaqMatch | None:
                 answer=r["answer"],
                 tags=r.get("tags") or "",
                 language=r.get("language") or lang,
-                score=score,
+                score=float(score),
             )
 
-        # Apply confidence threshold to avoid weak matches
-    if best and best.score >= 0.25:
+    # Apply confidence threshold to avoid weak or irrelevant matches
+    if best and best.score >= 0.35:
         return best
 
-        # No suitable FAQ found
+    # No sufficiently confident match found
     return None
-
-
-# To do in the future:
-#  replace tokenize() with embeddings
-#  replace overlap score with cosine similarity
-#  keep the same API (find_best_faq). no API changes, only smarter internals.
