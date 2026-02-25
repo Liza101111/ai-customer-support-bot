@@ -1,14 +1,20 @@
 from __future__ import annotations
 from uuid import uuid4
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
+from dotenv import load_dotenv
 
 from app import db
 from app.faq import find_best_faq
+from app.admin_auth import require_admin
 
 
 app = FastAPI(title="AI Customer Support Bot")
+
+project_dir = Path(__file__).resolve().parent.parent
+load_dotenv(project_dir / ".env")
 
 
 # Simple endpoint to verify the server is running.
@@ -179,13 +185,16 @@ def list_conversations(
 # Add an admin/support reply message to an existing conversation.
 #
 # Behavior:
+# - Protected endpoint: requires valid X-Admin-Token header
 # - Returns 404 if conversation does not exist
 # - Stores an "admin" message in the messages table
 # - Updates conversations.updated_at so list view sorts correctly
 
 
 @app.post("/api/conversations/{conversation_id}/admin-reply")
-def admin_reply(conversation_id: str, payload: AdminReplyRequest):
+def admin_reply(
+    conversation_id: str, payload: AdminReplyRequest, _=Depends(require_admin)
+):
 
     # 1) Validate conversation exists
     if not db.conversation_exists(conversation_id):
