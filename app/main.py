@@ -81,16 +81,16 @@ def send_message(payload: SendMessageRequest):
 
     # 4) bot reply (FAQ first, then fallback stub)
 
-    match = find_best_faq(payload.text, lang="en")
-    print("FAQ DEBUG match =", match)
+    faq_match = find_best_faq(payload.text, lang="en")
+    print("FAQ DEBUG match =", faq_match)
 
-    if match:
-        bot_text = match.answer
+    if faq_match:
+        bot_text = faq_match.answer
         bot_meta = {
-            "confidence": round(match.score, 2),
+            "confidence": round(faq_match.score, 2),
             "language": "en",
             "source": "faq",
-            "faq_id": match.id,
+            "faq_id": faq_match.id,
         }
     else:
         bot_text = "Thanks! I got your message. How can I help you next?"
