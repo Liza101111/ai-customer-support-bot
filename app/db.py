@@ -5,6 +5,9 @@ import json
 from pathlib import Path
 import sqlite3
 from typing import Any
+import logging
+
+log = logging.getLogger(__name__)
 
 # __file__ = the current file path (app/db.py)
 # BASE_DIR = folder that contains this file (.../app)
@@ -126,13 +129,13 @@ def insert_message(
 
         message_id = cur.lastrowid
 
-        return {
-            "id": str(message_id),
-            "sender_type": sender_type,
-            "content": content,
-            "metadata": metadata or {},
-            "created_at": created_at,
-        }
+    return {
+        "id": str(message_id),
+        "sender_type": sender_type,
+        "content": content,
+        "metadata": metadata or {},
+        "created_at": created_at,
+    }
 
 
 def get_conversation(conversation_id: str) -> dict[str, Any] | None:
@@ -201,8 +204,6 @@ def fetch_faq_entries(lang: str = "en") -> list[dict[str, Any]]:
     """
     with get_conn() as conn:
 
-        print("DB DEBUG path =", DB_PATH)
-
         rows = conn.execute(
             """
             SELECT id, question, answer, tags, language, embedding
@@ -211,6 +212,8 @@ def fetch_faq_entries(lang: str = "en") -> list[dict[str, Any]]:
             """,
             (lang,),
         ).fetchall()
+
+    log.info("Fetched %d FAQ entries | lang=%s", len(rows), lang)
 
     return [
         {

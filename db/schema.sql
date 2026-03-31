@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS faq_entries (
     answer      TEXT NOT NULL,
     tags        TEXT,              -- e.g. "payment,refund" or JSON string
     language    TEXT NOT NULL DEFAULT 'en',
-    is_active   INTEGER NOT NULL DEFAULT 1   -- 1 = true, 0 = false
+    is_active   INTEGER NOT NULL DEFAULT 1,  -- 1 = true, 0 = false
     embedding   TEXT     -- JSON string storing vector
 );
 

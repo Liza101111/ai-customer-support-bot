@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-from math import sqrt
+
 
 from app import db
 from app.embeddings import embed
+import logging
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -68,10 +71,8 @@ def find_best_faq(query: str, lang: str = "en") -> FaqMatch | None:
 
     # Load FAQ entries (with stored embeddings) from database
     rows = db.fetch_faq_entries(lang=lang)
-    print(f"FAQ DEBUG rows={len(rows)}")
-
     emb_count = sum(1 for r in rows if r.get("embedding"))
-    print(f"FAQ DEBUG rows_with_embedding={emb_count}")
+    log.info("FAQ search | rows=%d with_embedding=%d", len(rows), emb_count)
 
     best: FaqMatch | None = None
 
@@ -92,7 +93,7 @@ def find_best_faq(query: str, lang: str = "en") -> FaqMatch | None:
         # Embeddings are normalized → dot product equals cosine similarity
         score = dot(q_vec, faq_vec)
 
-        print(f"FAQ id={r['id']} | score={score:.3f} | question={r['question'][:40]}")
+        log.info("FAQ score | id=%s score=%.3f", r["id"], score)
 
         # Keep the highest scoring FAQ
         if best is None or score > best.score:
@@ -104,6 +105,7 @@ def find_best_faq(query: str, lang: str = "en") -> FaqMatch | None:
                 language=r.get("language") or lang,
                 score=float(score),
             )
+    log.info("FAQ best match | result=%s", best)
 
     # Apply confidence threshold to avoid weak or irrelevant matches
     if best and best.score >= 0.35:

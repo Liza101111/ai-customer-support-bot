@@ -10,6 +10,22 @@ from app import db
 from app.faq import find_best_faq
 from app.admin_auth import require_admin
 
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+
+# Suppress noisy external library logs
+logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
+logging.getLogger("transformers").setLevel(logging.WARNING)
+
+log = logging.getLogger(__name__)
+
 
 app = FastAPI(title="AI Customer Support Bot")
 
@@ -82,7 +98,7 @@ def send_message(payload: SendMessageRequest):
     # 4) bot reply (FAQ first, then fallback stub)
 
     faq_match = find_best_faq(payload.text, lang="en")
-    print("FAQ DEBUG match =", faq_match)
+    log.info("FAQ match | result=%s", faq_match)
 
     if faq_match:
         bot_text = faq_match.answer
