@@ -2,12 +2,19 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import logging
 from pathlib import Path
 import sqlite3
 from typing import Any
-import logging
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
+
+
+class DatabaseError(Exception):
+    """Custom exception for database-related errors."""
+
+    pass
+
 
 # __file__ = the current file path (app/db.py)
 # BASE_DIR = folder that contains this file (.../app)
@@ -27,12 +34,16 @@ def utc_now_iso() -> str:
     - Consistent across servers/time zones
     - Easier to sort and compare timestamps
     """
-    return (
-        datetime.now(timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+    try:
+        return (
+            datetime.now(timezone.utc)
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+    except Exception as e:
+        logger.error("Failed to generate UTC timestamp: %s", str(e))
+        raise DatabaseError(f"Timestamp generation failed: {str(e)}") from e
 
 
 def get_conn() -> sqlite3.Connection:
@@ -42,24 +53,48 @@ def get_conn() -> sqlite3.Connection:
     - timeout=10 helps avoid 'database is locked' errors in small projects.
     - row_factory=sqlite3.Row makes rows act like dicts:
       row["column_name"] instead of row[0]
-    """
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row
 
-    return conn
+    Raises:
+        DatabaseError: If connection cannot be established.
+    """
+    try:
+        if not DB_PATH.parent.exists():
+            logger.error("Database directory does not exist: %s", DB_PATH.parent)
+            raise DatabaseError(f"Database directory not found: {DB_PATH.parent}")
+
+        conn = sqlite3.connect(str(DB_PATH), timeout=10)
+        conn.row_factory = sqlite3.Row
+        logger.debug("Database connection established")
+        return conn
+    except sqlite3.Error as e:
+        logger.error("Database connection failed: %s", str(e))
+        raise DatabaseError(f"Connection failed: {str(e)}") from e
+    except Exception as e:
+        logger.error("Unexpected error connecting to database: %s", str(e))
+        raise DatabaseError(f"Unexpected error: {str(e)}") from e
 
 
 def conversation_exists(conversation_id: str) -> bool:
     """
     Check if a conversation with the given ID exists.
-    """
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM conversations WHERE id=?",
-            (conversation_id,),
-        ).fetchone()
 
-        return row is not None
+    Raises:
+        DatabaseError: If database query fails.
+    """
+    if not conversation_id or not isinstance(conversation_id, str):
+        logger.warning("Invalid conversation_id for exists check")
+        return False
+
+    try:
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM conversations WHERE id=?",
+                (conversation_id,),
+            ).fetchone()
+            return row is not None
+    except sqlite3.Error as e:
+        logger.error("Database error checking conversation existence: %s", str(e))
+        raise DatabaseError(f"Query failed: {str(e)}") from e
 
 
 def create_conversation(
@@ -75,31 +110,62 @@ def create_conversation(
     - channel: "web", "facebook", etc.
     - status: starts as "open"
     - created_at/updated_at: timestamps
-    """
-    now = utc_now_iso()
 
-    with get_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO conversations (id, user_id, session_id, channel, status, created_at, updated_at)
-            VALUES(?, NULL, ?, ?, 'open', ?, ?)
-            """,
-            (conversation_id, session_id, channel, now, now),
-        )
+    Raises:
+        DatabaseError: If conversation creation fails.
+    """
+    # Validate inputs
+    if not conversation_id or not isinstance(conversation_id, str):
+        raise DatabaseError("conversation_id must be a non-empty string")
+
+    if not channel or not isinstance(channel, str):
+        raise DatabaseError("channel must be a non-empty string")
+
+    try:
+        now = utc_now_iso()
+
+        with get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO conversations (id, user_id, session_id, channel, status, created_at, updated_at)
+                VALUES(?, NULL, ?, ?, 'open', ?, ?)
+                """,
+                (conversation_id, session_id, channel, now, now),
+            )
+            conn.commit()
+            logger.debug("Conversation created: %s", conversation_id)
+    except sqlite3.IntegrityError as e:
+        logger.warning("Conversation already exists or integrity error: %s", str(e))
+        raise DatabaseError(f"Integrity error: {str(e)}") from e
+    except sqlite3.Error as e:
+        logger.error("Database error creating conversation: %s", str(e))
+        raise DatabaseError(f"Creation failed: {str(e)}") from e
 
 
 def set_conversation_updated(conversation_id: str) -> None:
     """
     Update a conversation's updated_at timestamp.
     This is useful when a new message arrives.
-    """
-    now = utc_now_iso()
 
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE conversations SET updated_at=? WHERE id=?",
-            (now, conversation_id),
-        )
+    Raises:
+        DatabaseError: If update fails.
+    """
+    if not conversation_id or not isinstance(conversation_id, str):
+        raise DatabaseError("conversation_id must be a non-empty string")
+
+    try:
+        now = utc_now_iso()
+
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE conversations SET updated_at=? WHERE id=?",
+                (now, conversation_id),
+            )
+            conn.commit()
+            logger.debug("Conversation updated: %s", conversation_id)
+    except sqlite3.Error as e:
+        logger.error("Database error updating conversation: %s", str(e))
+        raise DatabaseError(f"Update failed: {str(e)}") from e
 
 
 def insert_message(
@@ -114,28 +180,48 @@ def insert_message(
     matching API structure.
 
     metadata is stored as JSON text in SQLite (because SQLite has no JSON type).
+
+    Raises:
+        DatabaseError: If insertion fails.
     """
-    created_at = utc_now_iso()
-    metadata_str = json.dumps(metadata) if metadata else None
+    # Validate inputs
+    if not conversation_id or not isinstance(conversation_id, str):
+        raise DatabaseError("conversation_id must be a non-empty string")
 
-    with get_conn() as conn:
-        cur = conn.execute(
-            """
-            INSERT INTO messages (conversation_id, sender_type, content, metadata, created_at)
-            VALUES(?, ?, ?, ?, ?)
-            """,
-            (conversation_id, sender_type, content, metadata_str, created_at),
-        )
+    if not sender_type or sender_type not in ("user", "bot", "agent"):
+        raise DatabaseError("sender_type must be 'user', 'bot', or 'agent'")
 
-        message_id = cur.lastrowid
+    if not isinstance(content, str) or not content.strip():
+        raise DatabaseError("content must be a non-empty string")
 
-    return {
-        "id": str(message_id),
-        "sender_type": sender_type,
-        "content": content,
-        "metadata": metadata or {},
-        "created_at": created_at,
-    }
+    try:
+        created_at = utc_now_iso()
+        metadata_str = json.dumps(metadata) if metadata else None
+
+        with get_conn() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO messages (conversation_id, sender_type, content, metadata, created_at)
+                VALUES(?, ?, ?, ?, ?)
+                """,
+                (conversation_id, sender_type, content, metadata_str, created_at),
+            )
+            conn.commit()
+            message_id = cur.lastrowid
+            logger.debug(
+                "Message inserted: id=%s conversation=%s", message_id, conversation_id
+            )
+
+        return {
+            "id": str(message_id),
+            "sender_type": sender_type,
+            "content": content,
+            "metadata": metadata or {},
+            "created_at": created_at,
+        }
+    except sqlite3.Error as e:
+        logger.error("Database error inserting message: %s", str(e))
+        raise DatabaseError(f"Insertion failed: {str(e)}") from e
 
 
 def get_conversation(conversation_id: str) -> dict[str, Any] | None:
@@ -201,31 +287,53 @@ def get_conversation(conversation_id: str) -> dict[str, Any] | None:
 def fetch_faq_entries(lang: str = "en") -> list[dict[str, Any]]:
     """
     Load active FAQ entries from the DB (for FAQ matching).
+
+    Args:
+        lang: Language code (default: "en").
+
+    Returns:
+        List of FAQ entry dicts.
+
+    Raises:
+        DatabaseError: If query fails.
     """
-    with get_conn() as conn:
+    if not isinstance(lang, str) or not lang.strip():
+        raise DatabaseError("lang must be a non-empty string")
 
-        rows = conn.execute(
-            """
-            SELECT id, question, answer, tags, language, embedding
-            FROM faq_entries
-            WHERE is_active=1 AND language=?
-            """,
-            (lang,),
-        ).fetchall()
+    try:
+        with get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, question, answer, tags, language, embedding
+                FROM faq_entries
+                WHERE is_active=1 AND language=?
+                """,
+                (lang,),
+            ).fetchall()
 
-    log.info("Fetched %d FAQ entries | lang=%s", len(rows), lang)
+        logger.debug("Fetched %d FAQ entries | lang=%s", len(rows), lang)
 
-    return [
-        {
-            "id": int(r["id"]),
-            "question": r["question"],
-            "answer": r["answer"],
-            "tags": r["tags"],
-            "language": r["language"],
-            "embedding": r["embedding"],
-        }
-        for r in rows
-    ]
+        result = []
+        for r in rows:
+            try:
+                result.append(
+                    {
+                        "id": int(r["id"]),
+                        "question": r["question"],
+                        "answer": r["answer"],
+                        "tags": r["tags"],
+                        "language": r["language"],
+                        "embedding": r["embedding"],
+                    }
+                )
+            except (ValueError, TypeError, KeyError) as e:
+                logger.warning("Skipping malformed FAQ row: %s", str(e))
+                continue
+
+        return result
+    except sqlite3.Error as e:
+        logger.error("Database error fetching FAQ entries: %s", str(e))
+        raise DatabaseError(f"Query failed: {str(e)}") from e
 
 
 def row_to_conversation_preview(r) -> dict[str, Any]:

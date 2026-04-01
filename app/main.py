@@ -7,8 +7,9 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from app import db
-from app.faq import find_best_faq
+from app.faq import find_best_faq, FAQError
 from app.admin_auth import require_admin
+from app.db import DatabaseError
 
 import logging
 
@@ -24,7 +25,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
 logging.getLogger("transformers").setLevel(logging.WARNING)
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 app = FastAPI(title="AI Customer Support Bot")
@@ -73,73 +74,127 @@ class AdminReplyRequest(BaseModel):
 
 @app.post("/api/messages")
 def send_message(payload: SendMessageRequest):
+    """
+    Send a message and get an AI-powered bot reply.
 
-    # 1) Determine conversation ID
-    # If the client did not provide one, generate a new ID.
-    # Using uuid4().hex avoids extra dependencies and works everywhere.
-    conversation_id = payload.conversation_id or uuid4().hex
+    The bot uses vector similarity search on the FAQ database to find
+    the most relevant answer. If no confident match is found, returns
+    a generic fallback response.
+    """
+    try:
+        # Validate payload
+        if not payload.text or not isinstance(payload.text, str):
+            raise HTTPException(
+                status_code=400, detail="text field is required and must be a string"
+            )
 
-    # 2) Create conversation if missing
-    if not db.conversation_exists(conversation_id):
-        db.create_conversation(
-            conversation_id,
-            payload.session_id,
-            payload.channel,
-        )
+        if not payload.channel or not isinstance(payload.channel, str):
+            raise HTTPException(
+                status_code=400, detail="channel field is required and must be a string"
+            )
 
-    # 3) Store the user message in DB
-    user_msg = db.insert_message(
-        conversation_id=conversation_id,
-        sender_type="user",
-        content=payload.text,
-        metadata=None,
-    )
+        if payload.text.strip() == "":
+            raise HTTPException(
+                status_code=400, detail="text cannot be empty or whitespace-only"
+            )
 
-    # 4) bot reply (FAQ first, then fallback stub)
+        # 1) Determine conversation ID
+        conversation_id = payload.conversation_id or uuid4().hex
 
-    faq_match = find_best_faq(payload.text, lang="en")
-    log.info("FAQ match | result=%s", faq_match)
+        # 2) Create conversation if missing
+        try:
+            if not db.conversation_exists(conversation_id):
+                db.create_conversation(
+                    conversation_id,
+                    payload.session_id,
+                    payload.channel,
+                )
+        except DatabaseError as e:
+            logger.error("Failed to create conversation: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to create conversation")
 
-    if faq_match:
-        bot_text = faq_match.answer
-        bot_meta = {
-            "confidence": round(faq_match.score, 2),
-            "language": "en",
-            "source": "faq",
-            "faq_id": faq_match.id,
+        # 3) Store the user message in DB
+        try:
+            user_msg = db.insert_message(
+                conversation_id=conversation_id,
+                sender_type="user",
+                content=payload.text,
+                metadata=None,
+            )
+        except DatabaseError as e:
+            logger.error("Failed to save user message: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to save user message")
+
+        # 4) Find best FAQ match
+        try:
+            faq_match = find_best_faq(payload.text, lang="en")
+        except FAQError as e:
+            logger.warning("FAQ search failed, using fallback: %s", str(e))
+            faq_match = None
+        except Exception as e:
+            logger.error("Unexpected error during FAQ search: %s", str(e))
+            faq_match = None
+
+        # Determine bot response
+        if faq_match:
+            bot_text = faq_match.answer
+            bot_meta = {
+                "confidence": round(faq_match.score, 2),
+                "language": "en",
+                "source": "faq",
+                "faq_id": faq_match.id,
+            }
+            logger.debug(
+                "FAQ match found: id=%s score=%.2f", faq_match.id, faq_match.score
+            )
+        else:
+            bot_text = "Thanks! I got your message. How can I help you next?"
+            bot_meta = {"confidence": 0.2, "language": "en", "source": "stub"}
+            logger.debug("No FAQ match found, using fallback response")
+
+        # 5) Save bot message
+        try:
+            bot_msg = db.insert_message(
+                conversation_id=conversation_id,
+                sender_type="bot",
+                content=bot_text,
+                metadata=bot_meta,
+            )
+        except DatabaseError as e:
+            logger.error("Failed to save bot message: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to save bot message")
+
+        # 6) Update conversation timestamp
+        try:
+            db.set_conversation_updated(conversation_id)
+        except DatabaseError as e:
+            logger.warning("Failed to update conversation timestamp: %s", str(e))
+            # Don't fail the request for this non-critical operation
+
+        # 7) Return response
+        return {
+            "conversation_id": conversation_id,
+            "user_message": {
+                "id": user_msg["id"],
+                "sender_type": user_msg["sender_type"],
+                "content": user_msg["content"],
+                "created_at": user_msg["created_at"],
+            },
+            "bot_message": {
+                "id": bot_msg["id"],
+                "sender_type": bot_msg["sender_type"],
+                "content": bot_msg["content"],
+                "created_at": bot_msg["created_at"],
+            },
+            "status": "open",
         }
-    else:
-        bot_text = "Thanks! I got your message. How can I help you next?"
-        bot_meta = {"confidence": 0.2, "language": "en", "source": "stub"}
 
-    bot_msg = db.insert_message(
-        conversation_id=conversation_id,
-        sender_type="bot",
-        content=bot_text,
-        metadata=bot_meta,
-    )
-
-    # 5) Update conversation updated_at (so list view can sort by latest activity)
-    db.set_conversation_updated(conversation_id)
-
-    # 6) Return response payload
-    # We keep the response small: the new user message + the bot reply.
-    return {
-        "conversation_id": conversation_id,
-        "user_message": {
-            "id": user_msg["id"],
-            "sender_type": user_msg["sender_type"],
-            "content": user_msg["content"],
-            "created_at": user_msg["created_at"],
-        },
-        "bot_message": {
-            "id": bot_msg["id"],
-            "sender_type": bot_msg["sender_type"],
-            "content": bot_msg["content"],
-            "created_at": bot_msg["created_at"],
-        },
-        "status": "open",
-    }
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        logger.error("Unexpected error in send_message: %s", str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred")
 
 
 # -----------------------------------------------------------------------------
