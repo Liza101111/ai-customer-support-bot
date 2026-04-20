@@ -8,6 +8,7 @@ Mocks find_best_faq to avoid loading the embedding model.
 
 import pytest
 from pathlib import Path
+from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "db" / "schema.sql"
@@ -35,6 +36,9 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("ADMIN_TOKEN", "test-token")
 
     from app.main import app
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module, "generate_reply", MagicMock(return_value="LLM reply"))
 
     return TestClient(app)
 
