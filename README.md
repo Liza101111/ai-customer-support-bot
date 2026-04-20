@@ -1,69 +1,111 @@
-AI Customer Support Bot (FastAPI + SQLite + Semantic Search)
+# AI Customer Support Bot
 
-A backend API for a customer support chatbot built with FastAPI and SQLite, featuring embedding-based semantic FAQ matching.
+A backend API for a customer support chatbot built with FastAPI and SQLite. Combines embedding-based semantic FAQ matching with an LLM fallback for questions the FAQ doesn't cover.
 
-This project demonstrates:
+## Features
 
-RESTful API design
+- Create and manage support conversations
+- Store user, bot, and agent messages in SQLite
+- Continue conversations across requests via `conversation_id`
+- Semantic FAQ matching using vector embeddings (cosine similarity)
+- LLM-powered fallback replies via Ollama (multi-turn context)
+- Admin reply endpoint with token-based auth
+- Conversation open/close/reopen lifecycle
+- Health check and Swagger/OpenAPI docs out of the box
 
-Database persistence
+## How It Works
 
-Clean architecture separation
+### 1. FAQ Matching
 
-Embedding-based semantic search
+User messages are embedded with `sentence-transformers/all-MiniLM-L6-v2` and compared against stored FAQ embeddings using dot product (cosine similarity). If the best match exceeds a confidence threshold (0.35), the FAQ answer is returned directly.
 
-AI-ready backend structure
+```
+"I want my money back"  →  matches  →  "How do I request a refund?"
+```
 
-✨ Features
+### 2. LLM Fallback
 
-Create and manage customer support conversations
+When no FAQ entry is confident enough, the message is sent to a local Ollama model (`llama3.2` by default). The last 10 messages from the conversation are passed as context, enabling coherent multi-turn replies.
 
-Store user and bot messages in SQLite
+```
+FAQ miss  →  fetch conversation history  →  Ollama  →  reply
+```
 
-Continue conversations using conversation_id
+Override the model with the `LLM_MODEL` environment variable.
 
-Embedding-based FAQ retrieval (semantic search)
+## Tech Stack
 
-Cosine similarity scoring with configurable threshold
+| Layer | Library |
+|---|---|
+| API | FastAPI + Uvicorn |
+| Validation | Pydantic |
+| Database | SQLite (via `sqlite3`) |
+| Embeddings | Sentence Transformers (`all-MiniLM-L6-v2`) |
+| LLM | Ollama (`llama3.2`) |
 
-Health check endpoint
+## Project Structure
 
-Swagger / OpenAPI documentation out of the box
+```
+app/
+  main.py          # FastAPI routes
+  llm.py           # Ollama LLM integration
+  faq.py           # FAQ matching logic
+  embeddings.py    # Sentence transformer wrapper
+  db.py            # SQLite queries
+  admin_auth.py    # Admin token auth
+db/
+  schema.sql       # Database schema
+  init_db.py       # DB initialisation script
+  seed_faq.py      # FAQ seed data
+tests/
+  test_api.py      # API endpoint tests
+  test_faq.py      # FAQ matching tests
+  test_db.py       # Database layer tests
+  test_llm.py      # LLM module tests
+```
 
-🧠 Semantic FAQ Matching
+## Setup
 
-The system uses vector embeddings to match user queries against stored FAQ entries.
+**Requirements:** Python 3.11+, [Ollama](https://ollama.com) running locally.
 
-How it works:
+```bash
+# Install dependencies
+pip install -r requirements.txt
 
-Generate embedding for user query
+# Pull the default model
+ollama pull llama3.2
 
-Compare against stored FAQ embeddings
+# Initialise the database and seed FAQ entries
+python db/init_db.py
+python db/seed_faq.py
 
-Compute similarity via dot product (cosine similarity)
+# Start the server
+uvicorn app.main:app --reload
+```
 
-Return best match if confidence threshold is met
+API docs available at `http://localhost:8000/docs`.
 
-This allows matching:
+## Configuration
 
-“I want money back”
-with
-“How do I request a refund?”
+| Variable | Default | Description |
+|---|---|---|
+| `LLM_MODEL` | `llama3.2` | Ollama model to use for LLM fallback |
+| `ADMIN_TOKEN` | — | Required for the admin-reply endpoint |
 
-Even without exact keyword overlap.
+## API Endpoints
 
-🛠 Tech Stack
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Health check |
+| `POST` | `/api/messages` | Send a message, get a bot reply |
+| `GET` | `/api/conversations` | List conversations |
+| `GET` | `/api/conversations/{id}` | Get conversation with messages |
+| `POST` | `/api/conversations/{id}/admin-reply` | Add an agent reply (auth required) |
+| `POST` | `/api/conversations/{id}/close` | Close a conversation |
+| `POST` | `/api/conversations/{id}/reopen` | Reopen a conversation |
 
-Python 3.11+
+## Running Tests
 
-FastAPI
-
-SQLite
-
-Pydantic
-
-Uvicorn
-
-Sentence Transformers
-
-Vector similarity search (cosine)
+```bash
+pytest
+```
