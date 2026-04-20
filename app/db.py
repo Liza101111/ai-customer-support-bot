@@ -413,3 +413,44 @@ def update_faq_embedding(faq_id: int, embedding_json: str) -> None:
             "UPDATE faq_entries SET embedding=? WHERE id=?",
             (embedding_json, faq_id),
         )
+
+
+def fetch_recent_messages(conversation_id: str, limit: int = 10) -> list[dict[str, Any]]:
+    """
+    Return the most recent messages for a conversation, oldest-first,
+    suitable for passing as LLM conversation history.
+
+    Args:
+        conversation_id: The conversation to fetch messages for.
+        limit: Maximum number of recent messages to return (default 10).
+
+    Returns:
+        List of dicts with "role" ("user" or "assistant") and "content".
+    """
+    try:
+        with get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT sender_type, content
+                FROM (
+                    SELECT sender_type, content, created_at, id
+                    FROM messages
+                    WHERE conversation_id = ?
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT ?
+                )
+                ORDER BY created_at ASC, id ASC
+                """,
+                (conversation_id, limit),
+            ).fetchall()
+
+        return [
+            {
+                "role": "assistant" if r["sender_type"] in ("bot", "agent") else "user",
+                "content": r["content"],
+            }
+            for r in rows
+        ]
+    except sqlite3.Error as e:
+        logger.error("Database error fetching messages: %s", str(e))
+        raise DatabaseError(f"Query failed: {str(e)}") from e
