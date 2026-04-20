@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 from app import db
 from app.faq import find_best_faq, FAQError
+from app.llm import generate_reply, LLMError
 from app.admin_auth import require_admin
 from app.db import DatabaseError
 
@@ -148,9 +149,26 @@ def send_message(payload: SendMessageRequest):
                 "FAQ match found: id=%s score=%.2f", faq_match.id, faq_match.score
             )
         else:
-            bot_text = "Thanks! I got your message. How can I help you next?"
-            bot_meta = {"confidence": 0.2, "language": "en", "source": "stub"}
-            logger.debug("No FAQ match found, using fallback response")
+            # Fetch prior turns so the LLM has multi-turn context
+            try:
+                history = db.fetch_recent_messages(conversation_id, limit=10)
+            except Exception as e:
+                logger.warning("Could not fetch conversation history: %s", str(e))
+                history = []
+
+            # Remove the user message we just saved so it isn't duplicated
+            # (generate_reply appends the current user_message itself)
+            if history and history[-1]["role"] == "user":
+                history = history[:-1]
+
+            try:
+                bot_text = generate_reply(payload.text, conversation_history=history)
+                bot_meta = {"source": "llm"}
+                logger.debug("LLM reply generated")
+            except LLMError as e:
+                logger.warning("LLM fallback failed, using stub: %s", str(e))
+                bot_text = "Thanks for reaching out! A support agent will be with you shortly."
+                bot_meta = {"source": "stub"}
 
         # 5) Save bot message
         try:
